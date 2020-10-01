@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+from collections import defaultdict
+from datetime import datetime
+import glob
+import hashlib
+import os
+import shutil
+import sys
+
+ALLOWED_EXTENSIONS = (
+    'png',
+    'jpeg',
+    'jpg',
+    'mov',
+    'mp4',
+    'm4v',
+)
+
+
+def _eprint(msg):
+    print(msg, file=sys.stderr)
+
+
+def _make_file_index(files):
+    file_index = defaultdict(dict)
+    for f in files:
+        h = hashlib.new('md5')
+        with open(f, 'rb') as media:
+            h.update(media.read())
+        # st_birthtime is OSX-specific.
+        # when portability matters, read https://stackoverflow.com/a/39501288/765705
+        file_index[f]['created'] = datetime.fromtimestamp(os.stat(f).st_birthtime)
+        file_index[f]['md5'] = h.hexdigest()
+    return file_index
+
+
+def _make_month_index(file_index):
+    month_index = defaultdict(list)
+    for f, i in file_index.items():
+        month_index[i['created'].strftime('%Y_%m')].append({
+            'file': f,
+            'created': i['created'],
+            'md5': i['md5']
+        })
+    return month_index
+
+
+def _make_duplicate_index(file_index):
+    """
+    Makes an index of files that have an exact content duplicate.
+    Reurns a dict with the md5 as key and duplicate files list as values.
+    """
+    duplicate_index = defaultdict(list)
+    for f, i in file_index.items():
+        duplicate_index[i['md5']].append({
+            'file': f,
+            'created': i['created']
+        })
+
+    # only return those with proper duplicates.
+    return {k: v for k, v in duplicate_index.items() if len(v) > 1}
+
+
+def _ensure_dir(name):
+    if not os.path.isdir(name):
+        # enforces removal of non-dir files.
+        shutil.rmtree(name, ignore_errors=True)
+        os.mkdir(name)
+
+
+def _dst_fname(f):
+    fname = f['created'].strftime('%Y_%m_%d_%H_%M_%S_')
+    fname += f['md5'][:8]  # first 8 bytes of MD5 (is enough?) to exclude conflicts on the same second.
+    ext = f['file'].split('.')[-1]
+    return fname + '.' + ext
+
+
+def _has_md5(f, md5):
+    h = hashlib.new('md5')
+    with open(f, 'rb') as media:
+        h.update(media.read())
+    return h.hexdigest() == md5
+
+
+def _sort(month_index, duplicate_index):
+    for dirname in month_index:
+        _ensure_dir(dirname)
+        for f in month_index[dirname]:
+            dst = os.path.join(dirname, _dst_fname(f))
+            if os.path.exists(dst) and _has_md5(dst, f['md5']):
+                continue
+            shutil.move(f['file'], dst)
+
+
+def _run():
+    files = glob.glob('**/*.*', recursive=True)
+    eligible_files = [f for f in files if f.split('.')[-1].lower() in ALLOWED_EXTENSIONS]
+    file_index = _make_file_index(eligible_files)
+    month_index = _make_month_index(file_index)
+    duplicate_index = _make_duplicate_index(file_index)
+    _sort(month_index, duplicate_index)
+    duplicate_count = sum(len(v) for v in duplicate_index.values())
+    _eprint(f'found {len(files)} files. {duplicate_count} duplicates. {len(eligible_files)} eligible over {len(month_index)} months.')
+
+
+if __name__ == '__main__':
+    _run()
