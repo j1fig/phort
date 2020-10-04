@@ -21,18 +21,23 @@ ALLOWED_EXTENSIONS = (
 def _created_datetime_from_file(f):
     if _file_ext(f) in ('jpg', 'jpeg'):
         with Image.open(f) as img:
-            tags = {
-                ExifTags.TAGS[k]: v
-                for k, v in img._getexif().items()
-                if k in ExifTags.TAGS
-            }
-            if 'DateTimeOriginal' in tags:
-                # JPEG EXIF datetimes are formatted like 2020:10:04 10:18:05
-                return datetime.strptime(tags['DateTimeOriginal'], '%Y:%m:%d %H:%M:%S')
-    else:
-        # we default to st_birthtime, which is OSX-specific.
-        # when portability matters, read https://stackoverflow.com/a/39501288/765705
-        return datetime.fromtimestamp(os.stat(f).st_birthtime)
+            exif = img._getexif()
+            # some JPGS will be missing EXIF header data and thus a datetime of
+            # the file creation can't be extracted.
+            if exif is not None:
+                tags = {
+                    ExifTags.TAGS[k]: v
+                    for k, v in exif.items()
+                    if k in ExifTags.TAGS
+                }
+                # some JPG files might be missing the particular datetime EXIF tag
+                # we need and so the file creation date can't be extracted.
+                if 'DateTimeOriginal' in tags:
+                    # JPEG EXIF datetimes are formatted like 2020:10:04 10:18:05
+                    return datetime.strptime(tags['DateTimeOriginal'], '%Y:%m:%d %H:%M:%S')
+    # if nothing else worked we default to st_birthtime, which is OSX-specific.
+    # when portability matters, read https://stackoverflow.com/a/39501288/765705
+    return datetime.fromtimestamp(os.stat(f).st_birthtime)
 
 
 def _make_file_index(files):
