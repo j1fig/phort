@@ -16,7 +16,10 @@ def main(argv=None):
         "-v", "--verbose", action="count", help="increase output verbosity"
     )
     parser.add_argument(
-        "-m", "--move", action="store_true", help="moves files instead of copying - this is non-reversible, use with care"
+        "-m",
+        "--move",
+        action="store_true",
+        help="moves files instead of copying - this is non-reversible, use with care",
     )
     args = parser.parse_args(argv[1:])
     try:

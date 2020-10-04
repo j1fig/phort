@@ -5,6 +5,7 @@ import hashlib
 import os
 import shutil
 
+from PIL import ExifTags, Image
 from yaspin import yaspin
 
 ALLOWED_EXTENSIONS = (
@@ -18,10 +19,20 @@ ALLOWED_EXTENSIONS = (
 
 
 def _created_datetime_from_file(f):
-    # TODO Use PIL for detecting created timestamp from JPEGs from their EXIF header data.
-    # st_birthtime is OSX-specific.
-    # when portability matters, read https://stackoverflow.com/a/39501288/765705
-    return datetime.fromtimestamp(os.stat(f).st_birthtime)
+    if _file_ext(f) in ('jpg', 'jpeg'):
+        with Image.open(f) as img:
+            tags = {
+                ExifTags.TAGS[k]: v
+                for k, v in img._getexif().items()
+                if k in ExifTags.TAGS
+            }
+            if 'DateTimeOriginal' in tags:
+                # JPEG EXIF datetimes are formatted like 2020:10:04 10:18:05
+                return datetime.strptime(tags['DateTimeOriginal'], '%Y:%m:%d %H:%M:%S')
+    else:
+        # we default to st_birthtime, which is OSX-specific.
+        # when portability matters, read https://stackoverflow.com/a/39501288/765705
+        return datetime.fromtimestamp(os.stat(f).st_birthtime)
 
 
 def _make_file_index(files):
@@ -38,11 +49,9 @@ def _make_file_index(files):
 def _make_month_index(file_index):
     month_index = defaultdict(list)
     for f, i in file_index.items():
-        month_index[i['created'].strftime('%Y_%m')].append({
-            'file': f,
-            'created': i['created'],
-            'md5': i['md5']
-        })
+        month_index[i['created'].strftime('%Y_%m')].append(
+            {'file': f, 'created': i['created'], 'md5': i['md5']}
+        )
     return month_index
 
 
@@ -53,10 +62,7 @@ def _make_duplicate_index(file_index):
     """
     duplicate_index = defaultdict(list)
     for f, i in file_index.items():
-        duplicate_index[i['md5']].append({
-            'file': f,
-            'created': i['created']
-        })
+        duplicate_index[i['md5']].append({'file': f, 'created': i['created']})
 
     # only return those with proper duplicates.
     return {k: v for k, v in duplicate_index.items() if len(v) > 1}
@@ -71,8 +77,10 @@ def _ensure_dir(name):
 
 def _dst_fname(f):
     fname = f['created'].strftime('%Y_%m_%d_%H_%M_%S_')
-    fname += f['md5'][:8]  # first 8 bytes of MD5 (is enough?) to exclude conflicts on the same second.
-    ext = f['file'].split('.')[-1]
+    fname += f['md5'][
+        :8
+    ]  # first 8 bytes of MD5 (is enough?) to exclude conflicts on the same second.
+    ext = _file_ext(f['file'])
     return fname + '.' + ext
 
 
@@ -81,6 +89,10 @@ def _has_md5(f, md5):
     with open(f, 'rb') as media:
         h.update(media.read())
     return h.hexdigest() == md5
+
+
+def _file_ext(f):
+    return f.split('.')[-1].lower()
 
 
 def _sort(month_index, duplicate_index):
@@ -99,7 +111,7 @@ def run(args):
     sp.start()
     sp.text = "searching for media files..."
     files = glob.glob('**/*.*', recursive=True)
-    eligible_files = [f for f in files if f.split('.')[-1].lower() in ALLOWED_EXTENSIONS]
+    eligible_files = [f for f in files if _file_ext(f) in ALLOWED_EXTENSIONS]
     sp.write(f"> found {len(eligible_files)} media files.")
     sp.text = "creating media file indexes..."
     file_index = _make_file_index(eligible_files)
