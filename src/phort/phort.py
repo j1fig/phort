@@ -1,11 +1,11 @@
-#!/usr/bin/env python3
 from collections import defaultdict
 from datetime import datetime
 import glob
 import hashlib
 import os
 import shutil
-import sys
+
+from yaspin import yaspin
 
 ALLOWED_EXTENSIONS = (
     'png',
@@ -17,8 +17,11 @@ ALLOWED_EXTENSIONS = (
 )
 
 
-def _eprint(msg):
-    print(msg, file=sys.stderr)
+def _created_datetime_from_file(f):
+    # TODO Use PIL for detecting created timestamp from JPEGs from their EXIF header data.
+    # st_birthtime is OSX-specific.
+    # when portability matters, read https://stackoverflow.com/a/39501288/765705
+    return datetime.fromtimestamp(os.stat(f).st_birthtime)
 
 
 def _make_file_index(files):
@@ -27,9 +30,7 @@ def _make_file_index(files):
         h = hashlib.new('md5')
         with open(f, 'rb') as media:
             h.update(media.read())
-        # st_birthtime is OSX-specific.
-        # when portability matters, read https://stackoverflow.com/a/39501288/765705
-        file_index[f]['created'] = datetime.fromtimestamp(os.stat(f).st_birthtime)
+        file_index[f]['created'] = _created_datetime_from_file(f)
         file_index[f]['md5'] = h.hexdigest()
     return file_index
 
@@ -92,16 +93,22 @@ def _sort(month_index, duplicate_index):
             shutil.move(f['file'], dst)
 
 
-def _run():
+def run(args):
+    sp = yaspin()
+    sp.color = 'blue'
+    sp.start()
+    sp.text = "searching for media files..."
     files = glob.glob('**/*.*', recursive=True)
     eligible_files = [f for f in files if f.split('.')[-1].lower() in ALLOWED_EXTENSIONS]
+    sp.write(f"> found {len(eligible_files)} media files.")
+    sp.text = "creating media file indexes..."
     file_index = _make_file_index(eligible_files)
     month_index = _make_month_index(file_index)
     duplicate_index = _make_duplicate_index(file_index)
-    _sort(month_index, duplicate_index)
     duplicate_count = sum(len(v) for v in duplicate_index.values())
-    _eprint(f'found {len(files)} files. {duplicate_count} duplicates. {len(eligible_files)} eligible over {len(month_index)} months.')
-
-
-if __name__ == '__main__':
-    _run()
+    sp.write(f"> found {duplicate_count} duplicated media files.")
+    sp.text = "sorting media files..."
+    _sort(month_index, duplicate_index)
+    # sp.red.fail("✘")
+    sp.text = 'success!'
+    sp.green.ok("✔")

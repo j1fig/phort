@@ -1,13 +1,22 @@
 phort
 =====
-A photo sorting script.
 
-setup
+A command line tool to sort photos for the family.
+
+Installation
+------------
+
+Wife, you will need Python 3.6+ installed in your host machine.
+
+```
+$ pip install phort
+```
+
+Usage
 -----
 
-* python 3.8+
+For more information about the available commands run
 
-running
--------
-
-    $ ./phort
+```
+$ phort -h
+```
